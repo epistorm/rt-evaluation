@@ -1,1 +1,2 @@
-# rt-evaluation
+# Epistorm collabathon: rt-evaluation group
+
