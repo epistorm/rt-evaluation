@@ -13,7 +13,7 @@ library(dplyr)
 
 ### Pull data
 ```{r data_pull}
-data_path <- "~/Collabathon/rt-evaluation_PL/data/GLEAM"
+data_path <- "~/Collabathon/rt-evaluation_PL/data/GLEAM/"
 ma_ll <- read.csv(paste0(data_path, "Massachusetts_line_list.csv"))
 
 #Aggregate to state
@@ -22,8 +22,7 @@ ma_state <- ma_ll %>%
   count() %>%
   rename("date"="infection_date", "confirm"="n") %>%
   mutate(date=as.Date(date)) %>%
-  head(10)
-  # dplyr::filter(date <= "2025-12-29")
+  dplyr::filter(date <= "2025-12-29")
 ```
 
 ### Define distributions
@@ -90,9 +89,11 @@ epinow_run <- EpiNow2::epinow(reported_cases=ma_state, # Input dataset
 
 ### Save output
 ```{r save-output}
-model_summary <- epinow_run$estimated_reported_cases$summarised
+model_summary <- epinow_run$estimates$summarised
 model_fnl <- model_summary %>%
   dplyr::select(date, median, lower_95, upper_95)
+
+write.csv(model_fnl, "MA_Rt_estimates_EpiNow.csv")
 ```
 
 
