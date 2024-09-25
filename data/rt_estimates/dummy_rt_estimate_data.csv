@@ -1,0 +1,4 @@
+county,state,label,rt_method,snapshot_date,date,traj_01,traj_02,traj_03,traj_04,traj_05
+02,17,baseline,EpiEstim_baseline,2024-01-03,2024-01-01,0.9,1.0,1.1,0.8,1.2
+02,17,baseline,EpiEstim_baseline,2024-01-03,2024-01-02,0.75,1.3,1.5,0.8,2.0
+02,17,baseline,EpiEstim_baseline,2024-01-03,2024-01-03,0.40,1.3,1.5,0.8,1.5
