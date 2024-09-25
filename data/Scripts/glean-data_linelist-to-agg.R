@@ -5,8 +5,10 @@
 ## Output:
 ## reference_data: date of event (ie ED visit)
 ## report_date: when the event was reported
-## location
+## location as FIPS code
 ## count: number of events on reference_date, report_date, location
+
+#shape = 2, scale =1/2, mean =4 
 
 #libraries
 library(dplyr)
@@ -15,11 +17,10 @@ library(here)
 
 # # #read data
 # file.list <- dir(here::here('data/GLEAM/raw_timeseries'), full.names = TRUE) #where you have your files
-# # df <- do.call(dplyr::bind_rows,lapply(file.list, read.csv)) #read in csvs
-# 
-# R.utils::gunzip(file.list[3])
-file.list <- dir(here::here('data/GLEAM/raw_timeseries'), full.names = TRUE) #where you have your files
-#shape = 2, scale =1/2, mean =4 
+# R.utils::gunzip(file.list[4])
+
+# file.list <- dir(here::here('data/GLEAM/raw_timeseries'), full.names = TRUE) #where you have your files
+# df <- do.call(rbind,lapply(file.list, read.csv, row.names=NULL))
 
 #format model output into linelist
 df <- read.csv(file.list[3])
@@ -49,7 +50,8 @@ df.linelist <- df.linelist%>%
   mutate(reference_date = date + hosp_time)
 
 #Add reporting delay
-df.linelist$report_time = 0 #No reporting delays
+#df.linelist$report_time = 0 #No reporting delays
+df.linelist$report_time = round(rgamma(nrow(df.linelist), shape=1, scale=2)) #No reporting delays
 df.linelist <- df.linelist %>%
   mutate(report_date = reference_date + report_time)
 
@@ -68,11 +70,11 @@ df <- df%>%
   select(reference_date, report_date, state, county)%>%
   filter(if_any(everything(), ~ !is.na(.)))
 
-#aggregate
-df.county <- df.linelist %>%
-  group_by(reference_date, report_date, STATEFP, COUNTYFP)%>%
-  summarise(count = n())%>%
-  as.data.frame()
+# #aggregate
+# df.county <- df.linelist %>%
+#   group_by(reference_date, report_date, STATEFP, COUNTYFP)%>%
+#   summarise(count = n())%>%
+#   as.data.frame()
 
 #aggregate
 df.state <- df.linelist %>%
@@ -83,15 +85,12 @@ df.state <- df.linelist %>%
 #make sure all dates have something
 df.linelist <- left_join(date, df.state)
 
-write.csv(df.state, paste0(here::here('data/Test data/MA'), '/MA_NoNoise.csv')) #fix this
+write.csv(df.state, paste0(here::here('data/Test data/MA'), '/MA_DelayNoise.csv')) #fix this
 #write.csv(df.county, paste0(here::here('data'), '/county-agg-data.csv'))
-
-df1 <- df1 %>%
-  mutate(reference_date = as.Date(reference_date))
 
 fig = ggplot()+
   theme_classic(base_size = 24)+
-  geom_col(data=df1, aes(x=reference_date, y=count, fill=location))+
+  geom_col(data=df.state, aes(x=reference_date, y=count))+
   scale_x_date(date_breaks = "1 week", date_labels = "%W")+
   ylab("ED visits") + xlab("Reference date")
 fig
