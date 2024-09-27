@@ -99,7 +99,6 @@ epinow_run <- EpiNow2::epinow(reported_cases=ma_dn, # Input dataset
                               horizon=horizon, #7 day forecast
                               CrIs=c(0.05, 0.95),
                               return_output=T,
-                              # logs='/Volumes/cgcdphcidmodelingprod01/cid_bronze_db/aggregated/epinow_calcat/logs', 
                               verbose=interactive()) 
 ```
 
