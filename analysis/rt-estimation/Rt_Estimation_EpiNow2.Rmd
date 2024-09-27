@@ -1,0 +1,117 @@
+---
+title: "RtEstimation EpiNow_PL"
+author: "Phoebe Lu"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+### Load libraries
+```{r load-libraries}
+library(EpiNow2)
+library(dplyr)
+library(lubridate)
+```
+
+### Pull data
+-   reference_date = hospitalization date
+-   `ma_nn`: Massachusetts state data with no delay (all report_date=reference_date)
+-   `ma_dn`: Massachusetts state data with delay (report date != reference_date, or in other words, individuals are not reported on the same day they are hospitalized)
+-   All datasets subset for a 90-day period (10/3/25-12/31/25) due to EpiNow2 computational constraints
+```{r data_pull}
+#Read in data
+#MA no noise
+data_path <- paste0("data/Test data/MA/")
+ma_nn <- read.csv(paste0(data_path, "MA_NoNoise.csv")) %>%
+  rename("date"="reference_date",
+         "confirm"="count") %>%
+  dplyr::select(date, confirm) %>%
+  mutate(date=as.Date(date, format="%Y-%m-%d")) %>%
+  filter(date >= "2025-10-03" & date <= "2025-12-31")
+
+#MA delayed noise
+ma_dn <- read.csv(paste0(data_path, "MA_DelayNoise.csv"))  %>%
+  mutate(reference_date=as.Date(reference_date, format="%Y-%m-%d"),
+         report_date=as.Date(report_date, format="%Y-%m-%d")) %>%
+  dplyr::filter(report_date <= "2025-12-31") %>%
+  group_by(reference_date) %>%
+  mutate(confirm=sum(count)) %>%
+  rename("date"="reference_date") %>%
+  dplyr::select(date, confirm) %>%
+  dplyr::filter(row_number()==1)
+  
+```
+
+### Define distributions
+-   Since EpiEstim and Epifilter use a combined gamma distribution for IP and GT (mean=4, sd=sqrt(8)), we deconvolve to separate gamma distributions for EpiNow2, which requires separate arguments
+-   Assume data reporting delay is mean=1, sd=0.1
+```{r define-dist}
+#Generation time
+generation_time <- dist_spec(mean=2, sd=2, distribution="gamma", max=10)
+
+#Incubation period
+incubation_period <- dist_spec(mean=2, sd=2, distribution="gamma", max=10)
+
+#Data reporting delay
+data_report_delay <- dist_spec(mean=1, sd=0.1, distribution="gamma", max=10)
+```
+
+
+### Run EpiNow2
+```{r epinow-run}
+#Set parameters
+rw_value <- 1
+# Set horizon
+horizon <- 21
+# Empty call turns truncation correction off
+epinow2_truncation_module <- trunc_opts()
+# Basic settings
+n_chains <- 2
+n_samples <- 2000
+n_warmup <- 600
+seed <- 123
+# CFA gp settings
+epinow2_gp <- EpiNow2::gp_opts(alpha_sd = 0.0075)
+
+epinow_run <- EpiNow2::epinow(reported_cases=ma_dn, # Input dataset
+                              rt=EpiNow2::rt_opts(prior = list(mean=1, sd=0.2), # Prior for Rt
+                                                  rw=rw_value),
+                              truncation=epinow2_truncation_module,
+                              # This parameter sets the prior on the sd of the gaussian process
+                              # We are using this value to penalize large jumps in Rt from one day to the next
+                              gp = epinow2_gp,
+                              generation_time = generation_time_opts(generation_time), #generation time dist estimation
+                              delays=delay_opts(incubation_period+data_report_delay), 
+                              # These options tell the model to use a Poisson error structure, and to adjust for day-of-week effects
+                              obs = EpiNow2::obs_opts(
+                                family="poisson", 
+                                week_effect=TRUE),
+                              stan=EpiNow2::stan_opts(
+                                cores=4,
+                                chains=n_chains,
+                                seed=seed,
+                                control=list(
+                                  adapt_delta=0.99,
+                                  max_treedepth=12
+                                ),
+                                samples=n_samples, 
+                                warmup=n_warmup
+                              ),
+                              horizon=horizon, #7 day forecast
+                              CrIs=c(0.05, 0.95),
+                              return_output=T,
+                              verbose=interactive()) 
+```
+
+### Save output
+```{r save-output}
+#Obtain Rt estimates results summary
+model_summary <- epinow_run$estimates$summarised
+#Subset for 90 days of Rt estimates and the relevant columns
+model_fnl <- model_summary %>%
+  head(90) %>%
+  dplyr::select(date, median, lower_95, upper_95)
+#Write to file
+write.csv(model_fnl, "analysis/rt-estimation/EpiNow/MA_Rt_estimates_EpiNow_DelayNoise.csv")
+```
+
+
