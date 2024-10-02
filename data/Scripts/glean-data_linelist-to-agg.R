@@ -19,17 +19,18 @@ library(here)
 # file.list <- dir(here::here('data/GLEAM/raw_timeseries'), full.names = TRUE) #where you have your files
 # R.utils::gunzip(file.list[4])
 
-# file.list <- dir(here::here('data/GLEAM/raw_timeseries'), full.names = TRUE) #where you have your files
+file.list <- dir(here::here('data/GLEAM/raw_timeseries'), full.names = TRUE) #where you have your files
 # df <- do.call(rbind,lapply(file.list, read.csv, row.names=NULL))
 
 #format model output into linelist
 df <- read.csv(file.list[3])
 df <- df %>% 
   rename("county" = "county_full_name",
-         "state"= "state_name")%>%
-  select(date, county, state, new_Latent)%>%
-  mutate(STATE = "MA",
-         date = as.Date(date))
+         "state"= "state_name",
+         "FIPS" = "geoid")%>%
+  select(date, county, state, new_Latent, FIPS)%>%
+  mutate(date = as.Date(date))
+df$STATEFP <- substr(df$FIPS, start=1, stop=2)
 
 #take sample of infected population that gets hospitilized
 set.seed(1234)
@@ -50,48 +51,64 @@ df.linelist <- df.linelist%>%
   mutate(reference_date = date + hosp_time)
 
 #Add reporting delay
-#df.linelist$report_time = 0 #No reporting delays
-df.linelist$report_time = round(rgamma(nrow(df.linelist), shape=1, scale=2)) #No reporting delays
+df.linelist$report_time_clean = 0 #No reporting delays
+set.seed(1234)
+df.linelist$report_time_noise = round(rgamma(nrow(df.linelist), shape=1, scale=2)) #gamma distributed
 df.linelist <- df.linelist %>%
-  mutate(report_date = reference_date + report_time)
-
-#Convert to FIPS code
-key <- read.csv("https://www2.census.gov/geo/docs/reference/codes2020/national_county2020.txt", sep="|")%>%
-  rename("county" = "COUNTYNAME")%>%
-  select(county, STATE, STATEFP, COUNTYFP)
-df.linelist <- left_join(df.linelist, key)
-
-#format
-df <- df%>%
-  rename('reference_date'='hospitalization_date',
-         'report_date' = 'reporting_date',
-         'state' = 'state_name',
-         'county'= 'county_full_name')%>%
-  select(reference_date, report_date, state, county)%>%
-  filter(if_any(everything(), ~ !is.na(.)))
+  mutate(report_date_nonoise = reference_date + report_time_clean,
+         report_date_noise = reference_date + report_time_noise)
 
 # #aggregate
 # df.county <- df.linelist %>%
-#   group_by(reference_date, report_date, STATEFP, COUNTYFP)%>%
+#   group_by(reference_date, report_date, STATEFP, FIPS)%>%
 #   summarise(count = n())%>%
 #   as.data.frame()
 
 #aggregate
-df.state <- df.linelist %>%
-  group_by(reference_date, report_date, state)%>%
+df.state.nonoise <- df.linelist %>%
+  rename("report_date" = "report_date_nonoise")%>%
+  group_by(reference_date, report_date, state, STATEFP)%>%
   summarise(count = n())%>%
-  as.data.frame()
+  as.data.frame()%>%
+  mutate(label = "leam_no_noise")
 
-#make sure all dates have something
-df.linelist <- left_join(date, df.state)
+df.state.noise <- df.linelist %>%
+  rename("report_date" = "report_date_noise")%>%
+  group_by(reference_date, report_date, state, STATEFP)%>%
+  summarise(count = n())%>%
+  as.data.frame()%>%
+  mutate(label = "leam_noise_reporting_delay")
 
-write.csv(df.state, paste0(here::here('data/Test data/MA'), '/MA_DelayNoise.csv')) #fix this
-#write.csv(df.county, paste0(here::here('data'), '/county-agg-data.csv'))
+# #make sure all dates have something
+# df.linelist <- left_join(date, df.state)
 
-fig = ggplot()+
+
+# write.csv(df.state, paste0(here::here('data/Test data/MA'), '/MA_NoNoise.csv')) #fix this
+# write.csv(df.state, paste0(here::here('data/Test data/MA'), '/MA_DelayNoise.csv')) #fix this
+
+df1 <- df.state.nonoise %>%
+  filter(report_date <= "2025-12-31")%>%
+  group_by(reference_date)%>%
+  summarize(nonoise = sum(count))
+
+df2 <- df.state.noise %>%
+  filter(report_date <= "2025-12-31")%>%
+  group_by(reference_date)%>%
+  summarize(noise = sum(count))
+
+df0 <- full_join(df1, df2)
+
+#visualize
+Pal1 <- c("Reporting delay" = "#03ffff5c",
+          #'Reporting delay' = "#f9cb9cff",
+          'Perfect reporting' = 'grey')
+
+fig1 = ggplot()+
   theme_classic(base_size = 24)+
-  geom_col(data=df.state, aes(x=reference_date, y=count))+
-  scale_x_date(date_breaks = "1 week", date_labels = "%W")+
-  ylab("ED visits") + xlab("Reference date")
-fig
-
+  #geom_col(data=df0, aes(x=reorder(STUSPS, -Total, sum), y=Total))+
+  geom_col(data=df0, aes(x=reference_date, y=nonoise, fill="Perfect reporting"))+
+  geom_col(data=df0, aes(x=reference_date, y=noise, fill="Reporting delay"))+
+  scale_fill_manual(values = Pal1, name= " ",
+                     breaks=c("Reporting delay","Perfect reporting")) +
+  ylab("Hospitilizations") + xlab("Date") + ggtitle("Synthetic MA data")
+fig1
